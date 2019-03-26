@@ -1,0 +1,136 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xmlns:tx="http://www.springframework.org/schema/tx"
+       xmlns:context="http://www.springframework.org/schema/context"
+       xmlns:util="http://www.springframework.org/schema/util"
+       xsi:schemaLocation="http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans.xsd http://www.springframework.org/schema/tx http://www.springframework.org/schema/tx/spring-tx.xsd http://www.springframework.org/schema/context http://www.springframework.org/schema/context/spring-context.xsd http://www.springframework.org/schema/util http://www.springframework.org/schema/util/spring-util.xsd">
+    <!--项目启动时默认加载xml配置文件，将创建对象的操作交给spring来管理，这是控制反转-->
+    <!--这里时创建shiro的对象-->
+    <bean id="shiroFilter" class="org.apache.shiro.spring.web.ShiroFilterFactoryBean">
+        <!--首先要配置SecurityManager对象  -->
+        <!--property相当于当前bean对象的属性，ref就是注入该属性的qitabean的id值 value=“直接写入属性值，不需要注入其他bean'”-->
+        <property name="securityManager" ref="securityManager"/>
+        <!--设置登录页面-->
+        <property name="loginUrl" value="login.html"/>
+        <!--设置未认证成功，跳转的页面-->
+        <property name="unauthorizedUrl" value="/403.html"/>
+        <!--设置shiro内置的过滤器链。过滤链时从上往下按照顺序匹配，匹配到之后，就直接停止匹配并返回，所以把不需要验证
+           或者验证操作较少放在链的上方，越往下验证权限越多-->
+        <property name="filterChainDefinitions">
+            <value>
+    <!--
+       关于过滤器不起作用的问题：
+      ！！注意：这里的过滤接口都是前台经过springMVC的filter过滤器后请求后台的接口地址，并不是和后台接口的地址完全一致。比如
+          我设置的过滤器格式是 *.do。 所以前台请求使用接口.do的格式，shiro过滤使用的的接口地址就是接口+过滤器的格式(接口.do)
+          而实际后台接口都是接口名没有加.do。总言之，因为过滤器的原因，前台请求后台时需要经过过滤器的验证，所以请求后台时格式
+          为 接口名.do，shiro验证这里的接口需要和前台请求接口完全一致。
+
+          举例：我的过滤器为*.do的格式，后台接口名称是test，因为过滤器会过滤掉接口后缀不是.do的请求，所以我从前台请求test接口
+          格式为，test.do。这里shiro过滤的地址也是前台请求后台的地址 test.do 。
+
+    -->
+            <!--!!!!!!!!!!以下是shiro内置的角色、权限过滤器!!!!!!!!!!!-->
+                <!--不需要任何验证都可以访问login.html页面-->
+                /login.html = anon
+                /userCollection/subLogin.do = anon
+
+                <!--testRole接口需要admin角色的才可以访问-->
+                <!--/userCollection/testRole.do = roles["admin"]-->
+                <!--testRole1接口需要同时具有admin角色、admin1角色的才可以访问  相当于 and-->
+                <!--/userCollection/testRole1.do = roles["admin1,admin"]-->
+                <!--testPerms接口需要user:delete权限才可以访问-->
+                <!--/userCollection/testPerms.do = perms["user:delete"]-->
+                <!--testPerms接口需要同时具有user:delete、user:update权限才可以访问-->
+                <!--/userCollection/testPerms1.do = perms["user:delete","user:update"]-->
+
+             <!--！！shiro内置的角色、权限过滤器  end-->
+
+            <!--！！！！！自定义角色的过滤器  start-->
+                <!--使用shiro内置filter，必须同时满足两个角色才可以访问-->
+                /userCollection/testRole.do = roles["admin1,admin"]
+                <!--使用自定义filter，符合一个角色即可访问接口-->
+                /userCollection/testRole1.do = roleOr["admin1,admin"]
+
+
+                <!--authc：经过认证才可以拥有访问 /* 文件的    权限 ，一般把 /* = anthc验证放到最下方-->
+                /* = authc
+            </value>
+        </property>
+        <!--将自定义filter注入到shiro对象中-->
+        <property name="filters">
+            <util:map>
+                <!--使用这个key值来访问自定义filter的bean-->
+                <entry key="roleOr" value-ref="rolesOrFilter" />
+            </util:map>
+        </property>
+    </bean>
+     <!--创建自定义的角色过滤器，即多个角色时，满足一个角色即可访问接口-->
+     <bean class="com.liufei.filter.RolesOrFilter" id="rolesOrFilter" />
+
+    <!--创建shiro环境 SecurityManager对象-->
+    <bean id="securityManager" class="org.apache.shiro.web.mgt.DefaultWebSecurityManager">
+        <!--将自定义realm注入到SecurityManager中   ref=“bean的id名字”-->
+        <property name="realm" ref="realm"/>
+
+        <!--注入session管理器对象,这里注入的是shiro自带的session管理器-->
+       <!-- <property name="sessionManager" ref="defaultWebSessionManager" />-->
+
+        <!--注入自定义的session管理器对象-->
+        <property name="sessionManager" ref="customSessionDAO"/>
+
+        <!--注入自定义的cacheManager，如果开启自定义缓存，可以正常登录，但是登录接口中的：
+           if(subject.hasRole("admin")){
+
+            return "有admin权限，登录成功";
+        }
+        会报错。注释掉就没问题了
+         -->
+       <!-- <property name="cacheManager" ref="cacheManager"/>-->
+
+    </bean>
+
+    <!--创建自定义realm的对象 -->
+    <bean class="com.liufei.custom.realm.CustomRealm" id="realm">
+        <!--将加密对象注入到自定义realm中-->
+        <property name="credentialsMatcher" ref="hashedCredentialsMatcher"/>
+    </bean>
+    <!--创建加密对象-->
+    <bean class="org.apache.shiro.authc.credential.HashedCredentialsMatcher" id="hashedCredentialsMatcher">
+        <!--加密方式-->
+        <property name="hashAlgorithmName" value="MD5"/>
+        <!--加密次数,注意：如果前台密码正确，但是后台报错为数据库密码和前台传入的不一致，可能是因为加密次数不一致。-->
+        <property name="hashIterations" value="1"/>
+    </bean>
+
+
+    <!--创建session管理器的对象，使用shiro自带的DefaultWebSessionManager来管理-->
+   <!-- <bean class="org.apache.shiro.web.session.mgt.DefaultWebSessionManager" id="defaultWebSessionManager" >
+        &lt;!&ndash;注入自定义的sessionDAO&ndash;&gt;
+        <property name="sessionDAO" ref="redisSessionDAO" />
+
+    </bean>-->
+
+    <!--使用自定义的session管理器，提高效率-->
+    <bean class="com.liufei.session.CustomSessionDAO" id="customSessionDAO" >
+        <property name="sessionDAO" ref="redisSessionDAO" />
+
+    </bean>
+    <bean class="com.liufei.session.RedisSessionDAO" id="redisSessionDAO">
+
+    </bean>
+
+    <!--配置cacheManager(shiro的缓存管理器) 这里是重写了shiro的cacheManager-->
+    <bean class="com.liufei.cache.RedisCacheManager" id="cacheManager" >
+
+    </bean>
+
+
+    <!--引入其他配置文件-->
+    <import resource="spring-dao.xml"/>
+    <import resource="spring-redis.xml"/>
+
+    <context:component-scan base-package="com.liufei" />
+</beans>
+
+
